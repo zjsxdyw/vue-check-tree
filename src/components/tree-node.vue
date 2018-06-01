@@ -4,7 +4,7 @@
       <span class="icon-right" 
         :class="{ 
           'is-leaf': node.isLeaf,
-          expanded: !node.isLeaf && expanded
+          expanded: !node.isLeaf && node.expanded
         }"></span>
       <span class="checkbox"
         :class="{
@@ -15,13 +15,14 @@
         @click.stop="handleCheckChange"></span>
       <slot :node="node"></slot>
     </div>
-    <div class="tree-node-children pl18" v-if="expanded">
+    <div class="tree-node-children pl18" v-if="node.expanded">
       <v-tree-node
         v-for="child in node.childNodes"
         :node="child"
         :key="child.id"
         :indent="indent"
-        :operation="operation">
+        :operation="operation"
+        v-if="child.visible">
         <template slot-scope="{node}">
           <slot :node="node"></slot>
         </template>
@@ -60,7 +61,6 @@
     data() {
       return {
         tree: null,
-        expanded: false,
         childNodeRendered: false,
         showCheckbox: true,
         oldChecked: null,
@@ -76,7 +76,7 @@
         if(this.node.isLeaf) {
           this.handleCheckChange();
         } else {
-          this.expanded = !this.expanded;
+          this.node.expanded = !this.node.expanded;
         }
       }
     },
