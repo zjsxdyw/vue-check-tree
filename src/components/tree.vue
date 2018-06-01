@@ -1,14 +1,12 @@
 <template>
-  <div
-    class="el-tree"
-    role="tree"
-  >
+  <div class="tree" role="tree">
     <v-tree-node
       v-for="child in root"
       :node="child"
       :key="child.id"
       :indent="indent"
-      :operation="operation">
+      :operation="operation"
+      v-if="child.visible">
         <template slot-scope="{node}">
           <slot v-if="$scopedSlots && $scopedSlots.default" :node="node"></slot>
           <span v-else class="tree-node-label" v-text="node.label"></span>
@@ -39,33 +37,58 @@
     }
   }
 
-  const generate = tailCallOptimize(({nodes, data, props, level, pid, map}) => {
+  const generate = tailCallOptimize(({nodes, data, props, level, pid, map, defaultExpand}) => {
     data.forEach(item => {
       let node = {
         childNodes: [],
-        label: item[props.label],
-        id: item[props.id],
+        label: item[props.label || 'label'],
+        id: item[props.id || 'id'],
         level: level,
         isLeaf: false,
         checked: false,
         indeterminate: false,
+        visible: true,
+        expanded: defaultExpand || false,
         pid: pid,
         data: item
       };
-      if(item[props.children] && item[props.children].length) {
+      let children = props.children || 'children';
+      if(item[children] && item[children].length) {
         generate({
           nodes: node.childNodes, 
-          data: item[props.children],
+          data: item[children],
           props,
           level: level + 1,
           pid: node.id,
-          map
+          map,
+          defaultExpand
         });
       } else {
         node.isLeaf = true;
       }
       nodes.push(node);
       map[node.id] = node;
+    });
+  });
+
+  const filter = tailCallOptimize((nodes, keyword, map, pVisible) => {
+    nodes.forEach(node => {
+      if(!keyword) {
+        node.visible = true;
+      } else if(node.label.indexOf(keyword) > -1) {
+        node.visible = true;
+        let pNode = map[node.pid];
+        while(pNode) {
+          pNode.visible = true;
+          pNode.expanded = true;
+          pNode = map[pNode.pid];
+        }
+      } else {
+        node.visible = !!pVisible;
+      }
+      if(!node.isLeaf) {
+        filter(node.childNodes, keyword, map, node.visible);
+      }
     });
   });
 
@@ -83,7 +106,8 @@
         operation: {
           checkNode: this.checkNode
         },
-        checkedList: []
+        checkedList: [],
+        checkedMap: {}
       }
     },
 
@@ -102,7 +126,6 @@
           return {
             children: 'children',
             label: 'label',
-            disabled: 'disabled',
             id: 'id'
           };
         }
@@ -111,11 +134,8 @@
         type: Number,
         default: 18
       },
-      'filter-node-method': {
-        type: Function
-      },
-      'node-key': {
-        type: String
+      'default-expand': {
+        type: Boolean
       }
     },
 
@@ -124,19 +144,21 @@
     },
 
     methods: {
-      filter() {
-
+      filter(keyword) {
+        filter(this.root, keyword, this.map);
       },
       setCheckedByKeys(keys) {
         let addList = [];
+        let keysMap = {};
         keys.forEach(key => {
-          if(this.checkedList.indexOf(key) === -1) {
+          if(this.checkedMap[key] === undefined) {
             addList.push(key);
           }
+          keysMap[key] = true;
         });
         let removeList = [];
         this.checkedList.forEach(key => {
-          if(keys.indexOf(key) === -1) {
+          if(!keysMap[key]) {
             removeList.push(key);
           }
         });
@@ -155,7 +177,9 @@
       },
       setCheckedByKey(key, value) {
         if(this.map[key]) {
-          console.time('setChecked')
+          let start = new Date();
+          this.addList = [];
+          this.removeList = [];
           let node = this.map[key];
           if(!node.isLeaf) {
             node.indeterminate = false;
@@ -178,7 +202,28 @@
             pNode.indeterminate = !allChecked && hasChecked;
             pNode = this.map[pNode.pid];
           }
-          console.timeEnd('setChecked')
+
+
+          let removeMap = {};
+          this.removeList.forEach(id => {
+            removeMap[id] = true;
+          });
+          let indexList = [];
+          this.checkedList.forEach((id, index) => {
+            if(removeMap[id]) {
+              indexList.unshift(index);
+              delete this.checkedMap[id];
+            }
+          });
+
+          indexList.forEach(index => {
+            this.checkedList.splice(index, 1);
+          });
+
+          this.addList.forEach(id => {
+            this.checkedList.push(id);
+            this.checkedMap[id] = true;
+          });
         }
       },
       setAllChildChecked(key, value) {
@@ -202,11 +247,10 @@
         if(node.checked !== value) {
           node.checked = value;
           if(node.isLeaf) {
-            let index = this.checkedList.indexOf(node.id);
-            if(value && index === -1) {
-              this.checkedList.push(node.id);
-            } else if(!value && index > -1) {
-              this.checkedList.splice(index, 1);
+            if(value && !this.checkedMap[node.id]) {
+              this.addList.push(node.id);
+            } else if(!value && this.checkedMap[node.id]) {
+              this.removeList.push(node.id);
             }
           }
         }
@@ -219,8 +263,9 @@
         data: this.data,
         props: this.props,
         level: 1,
-        pid: '',
-        map: this.map
+        pid: null,
+        map: this.map,
+        defaultExpand: this.defaultExpand
       });
     }
   };
