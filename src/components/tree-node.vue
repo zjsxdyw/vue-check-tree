@@ -31,8 +31,6 @@
   </div>
 </template>
 <script>
-  import ElCollapseTransition from 'element-ui/src/transitions/collapse-transition';
-  import ElCheckbox from 'element-ui/packages/checkbox';
 
   export default {
     name: 'VTreeNode',
@@ -51,11 +49,6 @@
       operation: {
         type: Object
       }
-    },
-
-    components: {
-      ElCollapseTransition,
-      ElCheckbox
     },
 
     data() {
