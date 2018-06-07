@@ -35,8 +35,6 @@
   export default {
     name: 'VTreeNode',
 
-    componentName: 'ElTreeNode',
-
     props: {
       node: {
         default() {
