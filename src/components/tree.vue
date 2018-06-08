@@ -5,6 +5,7 @@
       :node="child"
       :key="child.id"
       :indent="indent"
+      :radio="radio"
       :operation="operation"
       v-if="child.visible">
         <template slot-scope="{node}">
@@ -18,6 +19,7 @@
   </div>
 </template>
 <script>
+  import '../assets/main.css'
   import VTreeNode from './tree-node.vue';
 
   function tailCallOptimize(f) { 
@@ -71,10 +73,11 @@
     });
   });
 
-  const filter = tailCallOptimize((nodes, keyword, map, pVisible) => {
+  const filter = (nodes, keyword, map, pVisible) => {
     nodes.forEach(node => {
       if(!keyword) {
         node.visible = true;
+        node.expanded = false;
       } else if(node.label.indexOf(keyword) > -1) {
         node.visible = true;
         let pNode = map[node.pid];
@@ -90,7 +93,7 @@
         filter(node.childNodes, keyword, map, node.visible);
       }
     });
-  });
+  };
 
   export default {
     name: 'VTree',
@@ -135,7 +138,12 @@
         default: 18
       },
       'default-expand': {
-        type: Boolean
+        type: Boolean,
+        default: false
+      },
+      radio: {
+        type: Boolean,
+        default: false
       }
     },
 
@@ -148,6 +156,10 @@
         filter(this.root, keyword, this.map);
       },
       setCheckedByKeys(keys) {
+        if(this.radio && keys.length > 1) {
+          console.error('单选不能设置多个节点');
+          return;
+        }
         let addList = [];
         let keysMap = {};
         keys.forEach(key => {
@@ -171,16 +183,46 @@
       },
       checkNode(key, value) {
         if(this.map[key]) {
+          if(this.radio) {
+            let seleced = this.setRadioByKey(key);
+            this.$emit('check-change', this.map[seleced].data);
+            return
+          }
           this.setCheckedByKey(key, value);
           this.$emit('check-change', this.map[key].data);
         }
       },
+      setRadioByKey(key) {
+        if(this.map[key]) {
+          let node = this.map[key];
+          if(!node.isLeaf) {
+            return this.setRadioByKey(node.childNodes[0].id);
+          }
+          if(this.checkedList.length) {
+            let rNode = this.map[this.checkedList[0]];
+            let rpNode = this.map[rNode.pid];
+            while(rpNode) {
+              rpNode.indeterminate = false;
+              rpNode = this.map[rpNode.pid];
+            }
+            rNode.checked = false;
+          }
+          this.checkedList = [node.id];
+          this.checkedMap = {[node.id]: true};
+          let pNode = this.map[node.pid];
+          while(pNode) {
+            pNode.indeterminate = true;
+            pNode = this.map[pNode.pid];
+          }
+          node.checked = true;
+          return key;
+        }
+      },
       setCheckedByKey(key, value) {
         if(this.map[key]) {
-          let start = new Date();
+          let node = this.map[key];
           this.addList = [];
           this.removeList = [];
-          let node = this.map[key];
           if(!node.isLeaf) {
             node.indeterminate = false;
             this.setAllChildChecked(key, value);
@@ -224,6 +266,8 @@
             this.checkedList.push(id);
             this.checkedMap[id] = true;
           });
+          delete this.addList;
+          delete this.removeList;
         }
       },
       setAllChildChecked(key, value) {
