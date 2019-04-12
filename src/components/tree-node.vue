@@ -1,27 +1,29 @@
 <template>
-  <div class="tree-node">
-    <div class="tree-node-content" @click.stop="handleClick">
-      <span class="icon-right" 
+  <div class="check_tree__tree-node">
+    <div class="check_tree__tree-node-content" @click.stop="handleClick">
+      <span class="check_tree__icon-right" 
         :class="{ 
           'is-leaf': node.isLeaf,
-          expanded: !node.isLeaf && node.expanded
+          'expanded': !node.isLeaf && node.expanded
         }"></span>
-      <span class="checkbox"
+      <span class="check_tree__checkbox"
         :class="{
           'is-checked': node.checked,
           'is-indeterminate': node.indeterminate,
-          'is-disabled': node.disabled
+          'is-disabled': disabled
         }"
         @click.stop="handleCheckChange"></span>
       <slot :node="node"></slot>
     </div>
-    <div class="tree-node-children pl18" v-if="node.expanded">
+    <div class="check_tree__tree-node-children check_tree__pl18" v-if="node.expanded">
       <v-tree-node
         v-for="child in node.childNodes"
         :node="child"
         :key="child.id"
         :indent="indent"
+        :radio="radio"
         :operation="operation"
+        :disabled-list="disabledList"
         v-if="child.visible">
         <template slot-scope="{node}">
           <slot :node="node"></slot>
@@ -35,6 +37,8 @@
   export default {
     name: 'VTreeNode',
 
+    componentName: 'VTreeNode',
+
     props: {
       node: {
         default() {
@@ -44,8 +48,14 @@
       indent: {
         type: Number
       },
+      radio: {
+        type: Boolean
+      },
       operation: {
         type: Object
+      },
+      'disabled-list': {
+        type: Array
       }
     },
 
@@ -59,8 +69,15 @@
       };
     },
 
+    computed: {
+      disabled() {
+        return (this.node.checked && this.radio) || this.disabledList.indexOf(this.node.id) > -1;
+      }
+    },
+
     methods: {
       handleCheckChange() {
+        if(this.disabled) return;
         this.operation.checkNode(this.node.id, !this.node.checked);
       },
       handleClick() {

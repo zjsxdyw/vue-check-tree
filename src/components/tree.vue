@@ -1,5 +1,5 @@
 <template>
-  <div class="tree" role="tree">
+  <div class="check_tree__tree" role="tree">
     <v-tree-node
       v-for="child in root"
       :node="child"
@@ -7,21 +7,24 @@
       :indent="indent"
       :radio="radio"
       :operation="operation"
+      :disabled-list="disabledList"
       v-if="child.visible">
         <template slot-scope="{node}">
           <slot v-if="$scopedSlots && $scopedSlots.default" :node="node"></slot>
-          <span v-else class="tree-node-label" v-text="node.label"></span>
+          <span v-else class="check_tree__tree-node-label" v-text="node.label"></span>
         </template>
     </v-tree-node>
-    <div class="empty-block" v-if="!root || root.length === 0">
-      <span class="empty-text">{{ emptyText }}</span>
+    <div class="check_tree__empty-block" v-show="showEmpty">
+      <span class="check_tree__empty-text" v-text="emptyText"></span>
     </div>
   </div>
 </template>
 <script>
-  import '../assets/main.css'
-  import VTreeNode from './tree-node.vue';
+  import '../assets/tree.css'
+  import VTreeNode from './tree-node.vue'
+  import './pinyin.js'
 
+  // 尾递归函数
   function tailCallOptimize(f) { 
     let value;
     let active = false;
@@ -39,18 +42,19 @@
     }
   }
 
+  // 生成树状结构
   const generate = tailCallOptimize(({nodes, data, props, level, pid, map, defaultExpand}) => {
     data.forEach(item => {
       let node = {
         childNodes: [],
-        label: item[props.label || 'label'],
+        label: item[props.label || 'label'] || '',
         id: item[props.id || 'id'],
         level: level,
         isLeaf: false,
         checked: false,
         indeterminate: false,
         visible: true,
-        expanded: defaultExpand || false,
+        expanded: defaultExpand,
         pid: pid,
         data: item
       };
@@ -73,11 +77,13 @@
     });
   });
 
-  const filter = (nodes, keyword, map, pVisible) => {
+  // 根据关键字过滤，并返回找到显示节点的个数
+  const filter = (nodes, keyword, defaultExpand, map, pVisible) => {
+    let visibleCount = 0;
     nodes.forEach(node => {
       if(!keyword) {
         node.visible = true;
-        node.expanded = false;
+        node.expanded = defaultExpand;
       } else if(node.label.indexOf(keyword) > -1) {
         node.visible = true;
         let pNode = map[node.pid];
@@ -89,10 +95,35 @@
       } else {
         node.visible = !!pVisible;
       }
+      if(node.visible) visibleCount++;
+
       if(!node.isLeaf) {
-        filter(node.childNodes, keyword, map, node.visible);
+        visibleCount += filter(node.childNodes, keyword, defaultExpand, map, node.visible);
       }
     });
+
+    return visibleCount;
+  };
+
+  // 计算状态的递归函数
+  const dfs = (node) => {
+    if(!node) return;
+    if(node.isLeaf) return node;
+    let allChecked = true;
+    let hasChecked = false;
+    node.childNodes && node.childNodes.forEach(child => {
+      child = dfs(child);
+      if(!(child && child.visible)) return;
+      if(!child.checked) {
+        allChecked = false;
+      }
+      if(child.checked || child.indeterminate) {
+        hasChecked = true;
+      }
+    });
+    node.checked = allChecked;
+    node.indeterminate = !allChecked && hasChecked;
+    return node;
   };
 
   export default {
@@ -110,15 +141,17 @@
           checkNode: this.checkNode
         },
         checkedList: [],
-        checkedMap: {}
+        checkedMap: {},
+        // 默认显示数
+        visibleCount: 1
       }
     },
 
     props: {
-      emptyText: {
+      'empty-text': {
         type: String,
         default() {
-          return '暂无数据';
+          return 'empty';
         }
       },
       data: {
@@ -144,54 +177,69 @@
       radio: {
         type: Boolean,
         default: false
+      },
+      'disabled-list': {
+        type: Array,
+        default: []
       }
     },
 
     computed: {
-
+      showEmpty() {
+        return !this.root || this.root.length === 0 || this.visibleCount === 0;
+      }
     },
 
     methods: {
-      filter(keyword) {
-        filter(this.root, keyword, this.map);
+      // 初始化
+      init() {
+        this.root = [];
+        generate({
+          nodes: this.root,
+          data: this.data,
+          props: this.props,
+          level: 1,
+          pid: null,
+          map: this.map,
+          defaultExpand: this.defaultExpand
+        });
       },
+      // 筛选
+      filter(keyword) {
+        this.visibleCount = filter(this.root, keyword, this.defaultExpand, this.map);
+        this.recalculate();
+      },
+      // 通过key值勾选多节点
       setCheckedByKeys(keys) {
         if(this.radio && keys.length > 1) {
-          console.error('单选不能设置多个节点');
+          console.error('Radio cannot set more than one node');
           return;
         }
-        let addList = [];
-        let keysMap = {};
+        this.checkedMap = {};
+        this.checkedList = [];
+        for(let key in this.map) {
+          this.map[key].checked = false;
+          this.map[key].indeterminate = false;
+        }
         keys.forEach(key => {
-          if(this.checkedMap[key] === undefined) {
-            addList.push(key);
-          }
-          keysMap[key] = true;
-        });
-        let removeList = [];
-        this.checkedList.forEach(key => {
-          if(!keysMap[key]) {
-            removeList.push(key);
-          }
-        });
-        addList.forEach(key => {
           this.setCheckedByKey(key, true);
         });
-        removeList.forEach(key => {
-          this.setCheckedByKey(key, false);
-        });
       },
+      // 勾选节点并触发事件
       checkNode(key, value) {
         if(this.map[key]) {
           if(this.radio) {
             let seleced = this.setRadioByKey(key);
-            this.$emit('check-change', this.map[seleced].data);
+            this.$emit('check-change', this.map[seleced].data, value);
             return
           }
-          this.setCheckedByKey(key, value);
-          this.$emit('check-change', this.map[key].data);
+          let {addList, removeList} = this.setCheckedByKey(key, value);
+          addList = addList.map(id => this.map[id].data);
+          removeList = removeList.map(id => this.map[id].data);
+          this.$emit('check-change', this.map[key].data, value, addList, removeList);
         }
       },
+      // 单选节点
       setRadioByKey(key) {
         if(this.map[key]) {
           let node = this.map[key];
@@ -218,21 +266,23 @@
           return key;
         }
       },
-      setCheckedByKey(key, value) {
+      // 通过key值勾选单节点
+      setCheckedByKey(key, value, isClick) {
         if(this.map[key]) {
           let node = this.map[key];
+          if(isClick && this.disabledList.indexOf(node.id) > -1) return;
           this.addList = [];
           this.removeList = [];
           if(!node.isLeaf) {
-            node.indeterminate = false;
-            this.setAllChildChecked(key, value);
+            node.indeterminate = this.setAllChildChecked(key, value, isClick);
           }
-          this.setNodeChecked(node, value);
+          this.setNodeChecked(node, value, isClick);
           let pNode = this.map[node.pid];
           while(pNode) {
             let allChecked = true;
             let hasChecked = false;
             pNode.childNodes.forEach(node => {
+              if(!node.visible) return;
               if(!node.checked) {
                 allChecked = false;
               }
@@ -240,7 +290,7 @@
                 hasChecked = true;
               }
             });
-            this.setNodeChecked(pNode, allChecked);
+            this.setNodeChecked(pNode, allChecked, isClick);
             pNode.indeterminate = !allChecked && hasChecked;
             pNode = this.map[pNode.pid];
           }
@@ -266,20 +316,35 @@
             this.checkedList.push(id);
             this.checkedMap[id] = true;
           });
+          let result = {
+            addList: this.addList,
+            removeList: this.removeList
+          };
           delete this.addList;
           delete this.removeList;
+          return result;
         }
       },
-      setAllChildChecked(key, value) {
+      // 勾选所有子节点
+      setAllChildChecked(key, value, isClick) {
         if(this.map[key]) {
           let pNode = this.map[key];
+          let indeterminate = false;
           pNode.childNodes && pNode.childNodes.forEach(node => {
-            this.setNodeChecked(node, value);
-            node.indeterminate = false;
-            this.setAllChildChecked(node.id, value);
+            if(!node.visible) return;
+            let result = this.setNodeChecked(node, value, isClick);
+            if(result !== undefined && result !== value) {
+              indeterminate = true;
+            }
+            node.indeterminate = this.setAllChildChecked(node.id, value, isClick);
+            if(node.indeterminate) {
+              indeterminate = true;
+            }
           });
+          return indeterminate;
         }
       },
+      // 获取勾选列表
       getCheckedList() {
         let list = [];
         this.checkedList.forEach(id => {
@@ -287,7 +352,9 @@
         });
         return list;
       },
-      setNodeChecked(node, value) {
+      // 设置节点勾选状态
+      setNodeChecked(node, value, isClick) {
+        if(isClick && this.disabledList.indexOf(node.id) > -1) return node.checked;
         if(node.checked !== value) {
           node.checked = value;
           if(node.isLeaf) {
@@ -298,19 +365,22 @@
             }
           }
         }
+      },
+      // 重新修改所有非叶子节点勾选状态
+      recalculate() {
+        for(let node of this.root) {
+          dfs(node);
+        }
+      },
+    },
+    watch: {
+      data() {
+        this.init();
       }
     },
 
     created() {
-      generate({
-        nodes: this.root,
-        data: this.data,
-        props: this.props,
-        level: 1,
-        pid: null,
-        map: this.map,
-        defaultExpand: this.defaultExpand
-      });
+      this.init();
     }
   };
 </script>
